@@ -16,6 +16,11 @@ DEFAULT_SSH_PORT=2222
 BACKUP_DIR="/etc/ssh/backup_$(date +%Y%m%d_%H%M%S)"
 SSH_CONFIG="/etc/ssh/sshd_config"
 
+# 检测是否为交互式环境
+is_interactive() {
+    [[ $- == *i* ]]
+}
+
 # 交互式选择SSH端口
 select_ssh_port() {
     local USER_PORT=""
@@ -149,9 +154,29 @@ generate_ssh_keys() {
     # 创建.ssh目录
     mkdir -p "$KEY_DIR" && chmod 700 "$KEY_DIR"
     
-    # 生成密钥对（无密码）
-    echo -e "${YELLOW}正在生成4096位RSA密钥对...${NC}"
-    ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q
+    # 检查密钥文件是否已存在
+    if [ -f "$KEY_DIR/id_rsa" ]; then
+        echo -e "${YELLOW}检测到密钥文件已存在：$KEY_DIR/id_rsa${NC}"
+        read -p "是否覆盖现有密钥？(y/n)： " OVERWRITE
+        if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
+            echo -e "${YELLOW}正在生成4096位RSA密钥对（覆盖现有密钥）...${NC}"
+            ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q
+        else
+            echo -e "${YELLOW}跳过密钥生成，使用现有密钥。${NC}"
+            # 确保authorized_keys文件存在且权限正确
+            if [ ! -f "$KEY_DIR/authorized_keys" ]; then
+                echo -e "${YELLOW}正在配置公钥登录...${NC}"
+                cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
+                chmod 600 "$KEY_DIR/authorized_keys"
+                chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
+            fi
+            return 0
+        fi
+    else
+        # 生成密钥对（无密码）
+        echo -e "${YELLOW}正在生成4096位RSA密钥对...${NC}"
+        ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q
+    fi
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ SSH密钥对生成成功！${NC}"
@@ -161,6 +186,8 @@ generate_ssh_keys() {
         
         # 将公钥添加到authorized_keys
         echo -e "${YELLOW}正在配置公钥登录...${NC}"
+        # 先清空authorized_keys，避免重复添加
+        > "$KEY_DIR/authorized_keys"
         cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
         chmod 600 "$KEY_DIR/authorized_keys"
         chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
@@ -170,6 +197,95 @@ generate_ssh_keys() {
         echo -e "${RED}错误：SSH密钥对生成失败！${NC}"
         exit 1
     fi
+}
+
+# 创建新用户
+create_new_user() {
+    echo -e "${BLUE}\n======================================${NC}"
+    echo -e "${BLUE}步骤5.1：创建新用户${NC}"
+    echo -e "${BLUE}======================================${NC}"
+    
+    local NEW_USER=""
+    local NEW_PASSWORD=""
+    local CONFIRM_PASSWORD=""
+    
+    # 输入用户名
+    while [ -z "$NEW_USER" ]; do
+        read -p "请输入要创建的用户名： " NEW_USER
+        if [ -z "$NEW_USER" ]; then
+            echo -e "${RED}错误：用户名不能为空！${NC}"
+        elif id "$NEW_USER" &>/dev/null; then
+            echo -e "${RED}错误：用户 $NEW_USER 已存在！${NC}"
+            NEW_USER=""
+        fi
+    done
+    
+    # 输入密码
+    while [ -z "$NEW_PASSWORD" ]; do
+        read -s -p "请输入密码： " NEW_PASSWORD
+        echo
+        if [ -z "$NEW_PASSWORD" ]; then
+            echo -e "${RED}错误：密码不能为空！${NC}"
+            continue
+        fi
+        
+        # 密码强度检查
+        if [ ${#NEW_PASSWORD} -lt 8 ]; then
+            echo -e "${YELLOW}警告：密码长度小于8位，建议使用强密码！${NC}"
+        fi
+        
+        read -s -p "请再次输入密码： " CONFIRM_PASSWORD
+        echo
+        
+        if [ "$NEW_PASSWORD" != "$CONFIRM_PASSWORD" ]; then
+            echo -e "${RED}错误：两次输入的密码不一致！${NC}"
+            NEW_PASSWORD=""
+            CONFIRM_PASSWORD=""
+        fi
+    done
+    
+    # 创建用户
+    echo -e "${YELLOW}正在创建用户 $NEW_USER...${NC}"
+    useradd -m -s /bin/bash "$NEW_USER"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误：创建用户失败！${NC}"
+        return 1
+    fi
+    
+    # 设置密码
+    echo -e "${YELLOW}正在设置用户密码...${NC}"
+    echo "$NEW_USER:$NEW_PASSWORD" | chpasswd
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误：设置密码失败！${NC}"
+        return 1
+    fi
+    
+    # 授予sudo权限
+    echo -e "${YELLOW}正在授予sudo权限...${NC}"
+    if command -v sudo > /dev/null; then
+        usermod -aG sudo "$NEW_USER"
+        if [ $? -ne 0 ]; then
+            echo -e "${YELLOW}警告：授予sudo权限失败，您可以手动执行 'usermod -aG sudo $NEW_USER'${NC}"
+        else
+            echo -e "${GREEN}✓ 已授予sudo权限${NC}"
+        fi
+    else
+        echo -e "${YELLOW}警告：系统未安装sudo，跳过sudo权限配置${NC}"
+    fi
+    
+    # 为新用户生成SSH密钥
+    echo -e "${YELLOW}正在为新用户生成SSH密钥...${NC}"
+    su - "$NEW_USER" -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N '' -q"
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ 已为用户 $NEW_USER 生成SSH密钥${NC}"
+        echo -e "${GREEN}私钥位置：/home/$NEW_USER/.ssh/id_rsa${NC}"
+    else
+        echo -e "${YELLOW}警告：为用户生成SSH密钥失败，您可以手动执行${NC}"
+        echo -e "${YELLOW}su - $NEW_USER -c 'ssh-keygen -t rsa -b 4096'${NC}"
+    fi
+    
+    echo -e "${GREEN}✓ 用户 $NEW_USER 创建成功！${NC}"
+    return 0
 }
 
 # 检查并提示创建普通用户
@@ -186,22 +302,33 @@ check_user() {
     if [ -z "$NON_ROOT_USERS" ]; then
         echo -e "${RED}⚠️  警告：系统中没有找到普通用户！${NC}"
         echo -e "${RED}禁止root登录后，您将无法登录服务器！${NC}"
-        echo -e "${YELLOW}建议创建一个普通用户，步骤如下：${NC}"
-        echo -e "${GREEN}1. 创建用户：useradd 用户名${NC}"
-        echo -e "${GREEN}2. 设置密码：passwd 用户名${NC}"
-        echo -e "${GREEN}3. 授予sudo权限：usermod -aG sudo 用户名${NC}"
-        echo -e "${GREEN}4. 为新用户生成密钥：su - 用户名 -c 'ssh-keygen -t rsa -b 4096'${NC}"
-        echo -e "${YELLOW}请在继续前创建普通用户，或使用当前用户（$CURRENT_USER）登录。${NC}"
         
-        read -p "是否继续？(y/n)： " CONTINUE
-        if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
-            echo -e "${GREEN}脚本已终止，请创建普通用户后再运行。${NC}"
-            exit 0
+        read -p "是否要通过脚本创建新用户？(y/n)： " CREATE_USER
+        if [[ "$CREATE_USER" == "y" || "$CREATE_USER" == "Y" ]]; then
+            create_new_user
+        else
+            echo -e "${YELLOW}请手动创建普通用户，步骤如下：${NC}"
+            echo -e "${GREEN}1. 创建用户：useradd 用户名${NC}"
+            echo -e "${GREEN}2. 设置密码：passwd 用户名${NC}"
+            echo -e "${GREEN}3. 授予sudo权限：usermod -aG sudo 用户名${NC}"
+            echo -e "${GREEN}4. 为新用户生成密钥：su - 用户名 -c 'ssh-keygen -t rsa -b 4096'${NC}"
+            echo -e "${YELLOW}请在继续前创建普通用户，或使用当前用户（$CURRENT_USER）登录。${NC}"
+            
+            read -p "是否继续？(y/n)： " CONTINUE
+            if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+                echo -e "${GREEN}脚本已终止，请创建普通用户后再运行。${NC}"
+                exit 0
+            fi
         fi
     else
         echo -e "${GREEN}✓ 检测到以下普通用户：${NC}"
         echo -e "${GREEN}$NON_ROOT_USERS${NC}"
         echo -e "${YELLOW}您可以使用这些用户登录服务器。${NC}"
+        
+        read -p "是否要创建新用户？(y/n)： " CREATE_USER
+        if [[ "$CREATE_USER" == "y" || "$CREATE_USER" == "Y" ]]; then
+            create_new_user
+        fi
     fi
 }
 
