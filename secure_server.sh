@@ -21,10 +21,31 @@ is_interactive() {
     [[ $- == *i* ]]
 }
 
+# 检测是否通过管道执行（非交互式）
+is_pipe() {
+    [[ -p /dev/stdin ]]
+}
+
+# 检查是否为非交互式环境
+is_non_interactive() {
+    ! is_interactive || is_pipe
+}
+
 # 交互式选择SSH端口
 select_ssh_port() {
     local USER_PORT=""
     local CONFIRM=""
+    
+    # 检查是否为非交互式环境
+    if is_non_interactive; then
+        echo -e "${BLUE}\n======================================${NC}"
+        echo -e "${BLUE}步骤3：选择SSH端口${NC}"
+        echo -e "${BLUE}======================================${NC}"
+        echo -e "${YELLOW}非交互式环境下，使用默认端口。${NC}"
+        SSH_PORT=$DEFAULT_SSH_PORT
+        echo -e "${GREEN}使用默认端口：${SSH_PORT}${NC}"
+        return
+    fi
     
     # 初始化SSH_PORT变量
     SSH_PORT=""
@@ -192,7 +213,20 @@ check_user() {
         echo -e "${RED}⚠️  警告：系统中没有找到普通用户！${NC}"
         echo -e "${RED}禁止root登录后，您将无法登录服务器！${NC}"
         
-        # 强制显示创建用户选项，确保用户可以选择
+        # 检查是否为非交互式环境
+        if is_non_interactive; then
+            echo -e "${YELLOW}\n非交互式环境下，无法创建用户。${NC}"
+            echo -e "${YELLOW}请手动创建普通用户，然后再次运行脚本。${NC}"
+            echo -e "${YELLOW}手动创建步骤：${NC}"
+            echo -e "${GREEN}1. 创建用户：useradd 用户名${NC}"
+            echo -e "${GREEN}2. 设置密码：passwd 用户名${NC}"
+            echo -e "${GREEN}3. 授予sudo权限：usermod -aG sudo 用户名${NC}"
+            echo -e "${GREEN}4. 为新用户生成密钥：su - 用户名 -c 'ssh-keygen -t rsa -b 4096'${NC}"
+            echo -e "${RED}\n脚本已终止，请创建普通用户后再运行。${NC}"
+            exit 0
+        fi
+        
+        # 交互式环境下，询问用户
         echo -e "${YELLOW}\n您可以选择通过脚本创建新用户，或手动创建。${NC}"
         read -p "是否要通过脚本创建新用户？(y/n)： " CREATE_USER
         
@@ -229,6 +263,12 @@ check_user() {
         echo -e "${GREEN}✓ 检测到以下普通用户：${NC}"
         echo -e "${GREEN}$NON_ROOT_USERS${NC}"
         echo -e "${YELLOW}您可以使用这些用户登录服务器。${NC}"
+        
+        # 检查是否为非交互式环境
+        if is_non_interactive; then
+            echo -e "${YELLOW}\n非交互式环境下，跳过创建新用户。${NC}"
+            return 0
+        fi
         
         read -p "是否要创建新用户？(y/n)： " CREATE_USER
         
@@ -297,6 +337,21 @@ generate_ssh_keys() {
     # 检查密钥文件是否已存在
     if [ -f "$KEY_DIR/id_rsa" ]; then
         echo -e "${YELLOW}检测到密钥文件已存在：$KEY_DIR/id_rsa${NC}"
+        
+        # 检查是否为非交互式环境
+        if is_non_interactive; then
+            echo -e "${YELLOW}非交互式环境下，使用现有密钥。${NC}"
+            # 确保authorized_keys文件存在且权限正确
+            if [ ! -f "$KEY_DIR/authorized_keys" ]; then
+                echo -e "${YELLOW}正在配置公钥登录...${NC}"
+                cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
+                chmod 600 "$KEY_DIR/authorized_keys"
+                chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
+            fi
+            return 0
+        fi
+        
+        # 交互式环境下，询问用户
         read -p "是否覆盖现有密钥？(y/n)： " OVERWRITE
         if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
             echo -e "${YELLOW}正在生成4096位RSA密钥对（覆盖现有密钥）...${NC}"
