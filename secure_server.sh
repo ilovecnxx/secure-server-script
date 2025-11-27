@@ -25,72 +25,55 @@ is_interactive() {
 select_ssh_port() {
     local USER_PORT=""
     local CONFIRM=""
-    local MAX_ATTEMPTS=5
-    local ATTEMPT=0
     
     # 初始化SSH_PORT变量
     SSH_PORT=""
     
-    while [ -z "$SSH_PORT" ] && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-        ((ATTEMPT++))
+    while [ -z "$SSH_PORT" ]; do
         echo -e "${BLUE}\n======================================${NC}"
-        echo -e "${BLUE}步骤1：选择SSH端口${NC}"
+        echo -e "${BLUE}步骤3：选择SSH端口${NC}"
         echo -e "${BLUE}======================================${NC}"
         echo -e "${YELLOW}SSH端口是远程连接服务器的入口，默认端口22容易受到攻击。${NC}"
         echo -e "${YELLOW}建议选择1024-65535之间的端口，避免使用常用端口。${NC}"
         echo -e "${YELLOW}默认推荐端口：${DEFAULT_SSH_PORT}${NC}"
-        echo -e "${YELLOW}尝试次数：${ATTEMPT}/${MAX_ATTEMPTS}${NC}"
         
-        # 使用简单的read命令，添加超时
-        if read -t 30 -p "请输入您要使用的SSH端口（直接回车使用默认值 ${DEFAULT_SSH_PORT}）： " USER_PORT; then
-            # 检查输入是否为空，使用默认值
-            if [ -z "$USER_PORT" ]; then
-                SSH_PORT=$DEFAULT_SSH_PORT
-                echo -e "${GREEN}使用默认端口：${SSH_PORT}${NC}"
-            else
-                # 检查输入是否为数字
-                if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]]; then
-                    echo -e "${RED}错误：端口号必须是数字！${NC}"
-                    continue
-                fi
-                
-                # 检查端口范围
-                if [ "$USER_PORT" -lt 1024 ] || [ "$USER_PORT" -gt 65535 ]; then
-                    echo -e "${RED}错误：端口号必须在1024-65535之间！${NC}"
-                    continue
-                fi
-                
-                SSH_PORT=$USER_PORT
-                echo -e "${GREEN}已选择端口：${SSH_PORT}${NC}"
+        # 简单的read命令，不添加超时，确保等待用户输入
+        read -p "请输入您要使用的SSH端口（直接回车使用默认值 ${DEFAULT_SSH_PORT}）： " USER_PORT
+        
+        # 检查输入是否为空，使用默认值
+        if [ -z "$USER_PORT" ]; then
+            SSH_PORT=$DEFAULT_SSH_PORT
+            echo -e "${GREEN}使用默认端口：${SSH_PORT}${NC}"
+        else
+            # 检查输入是否为数字
+            if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]]; then
+                echo -e "${RED}错误：端口号必须是数字！${NC}"
+                continue
             fi
             
-            # 确认端口选择，添加超时
-            if read -t 30 -p "确认使用端口 ${SSH_PORT} 吗？(y/n)： " CONFIRM; then
-                if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-                    SSH_PORT=""  # 重置端口，重新开始循环
-                    echo -e "${YELLOW}已取消选择，重新开始...${NC}"
-                fi
-            else
-                echo -e "${RED}超时未响应，使用默认端口：${DEFAULT_SSH_PORT}${NC}"
-                SSH_PORT=$DEFAULT_SSH_PORT
+            # 检查端口范围
+            if [ "$USER_PORT" -lt 1024 ] || [ "$USER_PORT" -gt 65535 ]; then
+                echo -e "${RED}错误：端口号必须在1024-65535之间！${NC}"
+                continue
             fi
-        else
-            echo -e "${RED}超时未响应，使用默认端口：${DEFAULT_SSH_PORT}${NC}"
-            SSH_PORT=$DEFAULT_SSH_PORT
+            
+            SSH_PORT=$USER_PORT
+            echo -e "${GREEN}已选择端口：${SSH_PORT}${NC}"
+        fi
+        
+        # 确认端口选择，不添加超时
+        read -p "确认使用端口 ${SSH_PORT} 吗？(y/n)： " CONFIRM
+        if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+            SSH_PORT=""  # 重置端口，重新开始循环
+            echo -e "${YELLOW}已取消选择，重新开始...${NC}"
         fi
     done
-    
-    # 如果超过最大尝试次数，使用默认端口
-    if [ -z "$SSH_PORT" ]; then
-        echo -e "${RED}超过最大尝试次数，自动使用默认端口：${DEFAULT_SSH_PORT}${NC}"
-        SSH_PORT=$DEFAULT_SSH_PORT
-    fi
 }
 
 # 检查是否以root用户运行
 check_root() {
     echo -e "${BLUE}\n======================================${NC}"
-    echo -e "${BLUE}步骤2：检查权限${NC}"
+    echo -e "${BLUE}步骤1：检查权限${NC}"
     echo -e "${BLUE}======================================${NC}"
     echo -e "${YELLOW}正在检查当前用户权限...${NC}"
     echo -e "${YELLOW}修改SSH配置需要root权限，这是系统最高权限。${NC}"
@@ -104,105 +87,10 @@ check_root() {
     fi
 }
 
-# 备份原始配置
-backup_config() {
-    echo -e "${BLUE}\n======================================${NC}"
-    echo -e "${BLUE}步骤3：备份配置${NC}"
-    echo -e "${BLUE}======================================${NC}"
-    echo -e "${YELLOW}正在备份原始SSH配置...${NC}"
-    echo -e "${YELLOW}备份可以在配置出错时恢复，确保系统安全。${NC}"
-    
-    mkdir -p "$BACKUP_DIR"
-    cp "$SSH_CONFIG" "$BACKUP_DIR/"
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ 配置备份成功！${NC}"
-        echo -e "${GREEN}备份文件位置：$BACKUP_DIR/sshd_config${NC}"
-        echo -e "${YELLOW}如果配置出错，可以使用此备份文件恢复。${NC}"
-    else
-        echo -e "${RED}错误：配置备份失败！${NC}"
-        echo -e "${RED}请检查目录权限后重试。${NC}"
-        exit 1
-    fi
-}
-
-# 生成SSH密钥对
-generate_ssh_keys() {
-    echo -e "${BLUE}\n======================================${NC}"
-    echo -e "${BLUE}步骤4：生成SSH密钥对${NC}"
-    echo -e "${BLUE}======================================${NC}"
-    echo -e "${YELLOW}正在生成SSH密钥对...${NC}"
-    echo -e "${YELLOW}SSH密钥对用于无密码登录，比密码更安全。${NC}"
-    echo -e "${YELLOW}密钥对包含：${NC}"
-    echo -e "${YELLOW}  - 私钥：保存在本地电脑，用于登录服务器${NC}"
-    echo -e "${YELLOW}  - 公钥：保存在服务器，用于验证私钥${NC}"
-    
-    # 检查当前用户
-    CURRENT_USER=$(who am i | awk '{print $1}')
-    if [ -z "$CURRENT_USER" ]; then
-        CURRENT_USER=$(logname 2>/dev/null || echo "root")
-    fi
-    
-    echo -e "${GREEN}当前用户：$CURRENT_USER${NC}"
-    
-    # 设置密钥存储路径
-    KEY_DIR="/home/$CURRENT_USER/.ssh"
-    if [ "$CURRENT_USER" = "root" ]; then
-        KEY_DIR="/root/.ssh"
-    fi
-    
-    # 创建.ssh目录
-    mkdir -p "$KEY_DIR" && chmod 700 "$KEY_DIR"
-    
-    # 检查密钥文件是否已存在
-    if [ -f "$KEY_DIR/id_rsa" ]; then
-        echo -e "${YELLOW}检测到密钥文件已存在：$KEY_DIR/id_rsa${NC}"
-        read -p "是否覆盖现有密钥？(y/n)： " OVERWRITE
-        if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
-            echo -e "${YELLOW}正在生成4096位RSA密钥对（覆盖现有密钥）...${NC}"
-            ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q
-        else
-            echo -e "${YELLOW}跳过密钥生成，使用现有密钥。${NC}"
-            # 确保authorized_keys文件存在且权限正确
-            if [ ! -f "$KEY_DIR/authorized_keys" ]; then
-                echo -e "${YELLOW}正在配置公钥登录...${NC}"
-                cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
-                chmod 600 "$KEY_DIR/authorized_keys"
-                chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
-            fi
-            return 0
-        fi
-    else
-        # 生成密钥对（无密码）
-        echo -e "${YELLOW}正在生成4096位RSA密钥对...${NC}"
-        ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q
-    fi
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ SSH密钥对生成成功！${NC}"
-        echo -e "${GREEN}私钥位置：$KEY_DIR/id_rsa${NC}"
-        echo -e "${RED}⚠️  重要：请将此私钥下载到本地电脑安全存储！${NC}"
-        echo -e "${GREEN}公钥位置：$KEY_DIR/id_rsa.pub${NC}"
-        
-        # 将公钥添加到authorized_keys
-        echo -e "${YELLOW}正在配置公钥登录...${NC}"
-        # 先清空authorized_keys，避免重复添加
-        > "$KEY_DIR/authorized_keys"
-        cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
-        chmod 600 "$KEY_DIR/authorized_keys"
-        chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
-        
-        echo -e "${GREEN}✓ 公钥已添加到authorized_keys，密钥登录已配置。${NC}"
-    else
-        echo -e "${RED}错误：SSH密钥对生成失败！${NC}"
-        exit 1
-    fi
-}
-
 # 创建新用户
 create_new_user() {
     echo -e "${BLUE}\n======================================${NC}"
-    echo -e "${BLUE}步骤5.1：创建新用户${NC}"
+    echo -e "${BLUE}步骤2.1：创建新用户${NC}"
     echo -e "${BLUE}======================================${NC}"
     
     local NEW_USER=""
@@ -275,13 +163,14 @@ create_new_user() {
     
     # 为新用户生成SSH密钥
     echo -e "${YELLOW}正在为新用户生成SSH密钥...${NC}"
-    su - "$NEW_USER" -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N '' -q"
+    # 使用-f选项强制生成，避免交互式提示
+    su - "$NEW_USER" -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N '' -q -f"
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ 已为用户 $NEW_USER 生成SSH密钥${NC}"
         echo -e "${GREEN}私钥位置：/home/$NEW_USER/.ssh/id_rsa${NC}"
     else
         echo -e "${YELLOW}警告：为用户生成SSH密钥失败，您可以手动执行${NC}"
-        echo -e "${YELLOW}su - $NEW_USER -c 'ssh-keygen -t rsa -b 4096'${NC}"
+        echo -e "${YELLOW}su - $NEW_USER -c 'ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N '''${NC}"
     fi
     
     echo -e "${GREEN}✓ 用户 $NEW_USER 创建成功！${NC}"
@@ -291,7 +180,7 @@ create_new_user() {
 # 检查并提示创建普通用户
 check_user() {
     echo -e "${BLUE}\n======================================${NC}"
-    echo -e "${BLUE}步骤5：检查用户配置${NC}"
+    echo -e "${BLUE}步骤2：检查用户配置${NC}"
     echo -e "${BLUE}======================================${NC}"
     echo -e "${YELLOW}正在检查系统用户...${NC}"
     echo -e "${YELLOW}由于将禁止root直接登录，需要确保存在其他普通用户。${NC}"
@@ -329,6 +218,102 @@ check_user() {
         if [[ "$CREATE_USER" == "y" || "$CREATE_USER" == "Y" ]]; then
             create_new_user
         fi
+    fi
+}
+
+# 备份原始配置
+backup_config() {
+    echo -e "${BLUE}\n======================================${NC}"
+    echo -e "${BLUE}步骤4：备份配置${NC}"
+    echo -e "${BLUE}======================================${NC}"
+    echo -e "${YELLOW}正在备份原始SSH配置...${NC}"
+    echo -e "${YELLOW}备份可以在配置出错时恢复，确保系统安全。${NC}"
+    
+    mkdir -p "$BACKUP_DIR"
+    cp "$SSH_CONFIG" "$BACKUP_DIR/"
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ 配置备份成功！${NC}"
+        echo -e "${GREEN}备份文件位置：$BACKUP_DIR/sshd_config${NC}"
+        echo -e "${YELLOW}如果配置出错，可以使用此备份文件恢复。${NC}"
+    else
+        echo -e "${RED}错误：配置备份失败！${NC}"
+        echo -e "${RED}请检查目录权限后重试。${NC}"
+        exit 1
+    fi
+}
+
+# 生成SSH密钥对
+generate_ssh_keys() {
+    echo -e "${BLUE}\n======================================${NC}"
+    echo -e "${BLUE}步骤5：生成SSH密钥对${NC}"
+    echo -e "${BLUE}======================================${NC}"
+    echo -e "${YELLOW}正在生成SSH密钥对...${NC}"
+    echo -e "${YELLOW}SSH密钥对用于无密码登录，比密码更安全。${NC}"
+    echo -e "${YELLOW}密钥对包含：${NC}"
+    echo -e "${YELLOW}  - 私钥：保存在本地电脑，用于登录服务器${NC}"
+    echo -e "${YELLOW}  - 公钥：保存在服务器，用于验证私钥${NC}"
+    
+    # 检查当前用户
+    CURRENT_USER=$(who am i | awk '{print $1}')
+    if [ -z "$CURRENT_USER" ]; then
+        CURRENT_USER=$(logname 2>/dev/null || echo "root")
+    fi
+    
+    echo -e "${GREEN}当前用户：$CURRENT_USER${NC}"
+    
+    # 设置密钥存储路径
+    KEY_DIR="/home/$CURRENT_USER/.ssh"
+    if [ "$CURRENT_USER" = "root" ]; then
+        KEY_DIR="/root/.ssh"
+    fi
+    
+    # 创建.ssh目录
+    mkdir -p "$KEY_DIR" && chmod 700 "$KEY_DIR"
+    
+    # 检查密钥文件是否已存在
+    if [ -f "$KEY_DIR/id_rsa" ]; then
+        echo -e "${YELLOW}检测到密钥文件已存在：$KEY_DIR/id_rsa${NC}"
+        read -p "是否覆盖现有密钥？(y/n)： " OVERWRITE
+        if [[ "$OVERWRITE" == "y" || "$OVERWRITE" == "Y" ]]; then
+            echo -e "${YELLOW}正在生成4096位RSA密钥对（覆盖现有密钥）...${NC}"
+            # 使用-f选项强制覆盖
+            ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q -f
+        else
+            echo -e "${YELLOW}跳过密钥生成，使用现有密钥。${NC}"
+            # 确保authorized_keys文件存在且权限正确
+            if [ ! -f "$KEY_DIR/authorized_keys" ]; then
+                echo -e "${YELLOW}正在配置公钥登录...${NC}"
+                cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
+                chmod 600 "$KEY_DIR/authorized_keys"
+                chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
+            fi
+            return 0
+        fi
+    else
+        # 生成密钥对（无密码）
+        echo -e "${YELLOW}正在生成4096位RSA密钥对...${NC}"
+        ssh-keygen -t rsa -b 4096 -f "$KEY_DIR/id_rsa" -N "" -q
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ SSH密钥对生成成功！${NC}"
+        echo -e "${GREEN}私钥位置：$KEY_DIR/id_rsa${NC}"
+        echo -e "${RED}⚠️  重要：请将此私钥下载到本地电脑安全存储！${NC}"
+        echo -e "${GREEN}公钥位置：$KEY_DIR/id_rsa.pub${NC}"
+        
+        # 将公钥添加到authorized_keys
+        echo -e "${YELLOW}正在配置公钥登录...${NC}"
+        # 先清空authorized_keys，避免重复添加
+        > "$KEY_DIR/authorized_keys"
+        cat "$KEY_DIR/id_rsa.pub" >> "$KEY_DIR/authorized_keys"
+        chmod 600 "$KEY_DIR/authorized_keys"
+        chown -R "$CURRENT_USER:$CURRENT_USER" "$KEY_DIR"
+        
+        echo -e "${GREEN}✓ 公钥已添加到authorized_keys，密钥登录已配置。${NC}"
+    else
+        echo -e "${RED}错误：SSH密钥对生成失败！${NC}"
+        exit 1
     fi
 }
 
@@ -469,20 +454,20 @@ main() {
     echo -e "${YELLOW}全程将有详细解释，无需担心操作失误。${NC}"
     echo -e "${YELLOW}预计耗时：约1分钟${NC}"
     
-    # 交互式选择SSH端口
-    select_ssh_port
-    
     # 检查root权限
     check_root
+    
+    # 检查并提示创建普通用户
+    check_user
+    
+    # 交互式选择SSH端口
+    select_ssh_port
     
     # 备份配置
     backup_config
     
     # 生成SSH密钥对
     generate_ssh_keys
-    
-    # 检查并提示创建普通用户
-    check_user
     
     # 修改SSH配置
     configure_ssh
