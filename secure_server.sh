@@ -192,20 +192,36 @@ check_user() {
         echo -e "${RED}⚠️  警告：系统中没有找到普通用户！${NC}"
         echo -e "${RED}禁止root登录后，您将无法登录服务器！${NC}"
         
+        # 强制显示创建用户选项，确保用户可以选择
+        echo -e "${YELLOW}\n您可以选择通过脚本创建新用户，或手动创建。${NC}"
         read -p "是否要通过脚本创建新用户？(y/n)： " CREATE_USER
+        
+        # 确保输入有效
+        while [[ "$CREATE_USER" != "y" && "$CREATE_USER" != "Y" && "$CREATE_USER" != "n" && "$CREATE_USER" != "N" ]]; do
+            echo -e "${RED}错误：请输入y或n！${NC}"
+            read -p "是否要通过脚本创建新用户？(y/n)： " CREATE_USER
+        done
+        
         if [[ "$CREATE_USER" == "y" || "$CREATE_USER" == "Y" ]]; then
             create_new_user
         else
-            echo -e "${YELLOW}请手动创建普通用户，步骤如下：${NC}"
+            echo -e "${YELLOW}\n请手动创建普通用户，步骤如下：${NC}"
             echo -e "${GREEN}1. 创建用户：useradd 用户名${NC}"
             echo -e "${GREEN}2. 设置密码：passwd 用户名${NC}"
             echo -e "${GREEN}3. 授予sudo权限：usermod -aG sudo 用户名${NC}"
             echo -e "${GREEN}4. 为新用户生成密钥：su - 用户名 -c 'ssh-keygen -t rsa -b 4096'${NC}"
-            echo -e "${YELLOW}请在继续前创建普通用户，或使用当前用户（$CURRENT_USER）登录。${NC}"
+            echo -e "${YELLOW}\n请在继续前创建普通用户，或使用当前用户登录。${NC}"
             
             read -p "是否继续？(y/n)： " CONTINUE
+            
+            # 确保输入有效
+            while [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" && "$CONTINUE" != "n" && "$CONTINUE" != "N" ]]; do
+                echo -e "${RED}错误：请输入y或n！${NC}"
+                read -p "是否继续？(y/n)： " CONTINUE
+            done
+            
             if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
-                echo -e "${GREEN}脚本已终止，请创建普通用户后再运行。${NC}"
+                echo -e "${GREEN}\n脚本已终止，请创建普通用户后再运行。${NC}"
                 exit 0
             fi
         fi
@@ -215,6 +231,13 @@ check_user() {
         echo -e "${YELLOW}您可以使用这些用户登录服务器。${NC}"
         
         read -p "是否要创建新用户？(y/n)： " CREATE_USER
+        
+        # 确保输入有效
+        while [[ "$CREATE_USER" != "y" && "$CREATE_USER" != "Y" && "$CREATE_USER" != "n" && "$CREATE_USER" != "N" ]]; do
+            echo -e "${RED}错误：请输入y或n！${NC}"
+            read -p "是否要创建新用户？(y/n)： " CREATE_USER
+        done
+        
         if [[ "$CREATE_USER" == "y" || "$CREATE_USER" == "Y" ]]; then
             create_new_user
         fi
