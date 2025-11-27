@@ -18,43 +18,47 @@ SSH_CONFIG="/etc/ssh/sshd_config"
 
 # 交互式选择SSH端口
 select_ssh_port() {
-    echo -e "${BLUE}\n======================================${NC}"
-    echo -e "${BLUE}步骤1：选择SSH端口${NC}"
-    echo -e "${BLUE}======================================${NC}"
-    echo -e "${YELLOW}SSH端口是远程连接服务器的入口，默认端口22容易受到攻击。${NC}"
-    echo -e "${YELLOW}建议选择1024-65535之间的端口，避免使用常用端口。${NC}"
-    echo -e "${YELLOW}默认推荐端口：${DEFAULT_SSH_PORT}${NC}"
+    local SSH_PORT=""
+    local USER_PORT=""
+    local CONFIRM=""
     
-    read -p "请输入您要使用的SSH端口（直接回车使用默认值 ${DEFAULT_SSH_PORT}）： " USER_PORT
-    
-    # 检查输入是否为空，使用默认值
-    if [ -z "$USER_PORT" ]; then
-        SSH_PORT=$DEFAULT_SSH_PORT
-        echo -e "${GREEN}使用默认端口：${SSH_PORT}${NC}"
-    else
-        # 检查输入是否为数字
-        if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]]; then
-            echo -e "${RED}错误：端口号必须是数字！${NC}"
-            select_ssh_port
-            return
+    while [ -z "$SSH_PORT" ]; do
+        echo -e "${BLUE}\n======================================${NC}"
+        echo -e "${BLUE}步骤1：选择SSH端口${NC}"
+        echo -e "${BLUE}======================================${NC}"
+        echo -e "${YELLOW}SSH端口是远程连接服务器的入口，默认端口22容易受到攻击。${NC}"
+        echo -e "${YELLOW}建议选择1024-65535之间的端口，避免使用常用端口。${NC}"
+        echo -e "${YELLOW}默认推荐端口：${DEFAULT_SSH_PORT}${NC}"
+        
+        read -p "请输入您要使用的SSH端口（直接回车使用默认值 ${DEFAULT_SSH_PORT}）： " USER_PORT
+        
+        # 检查输入是否为空，使用默认值
+        if [ -z "$USER_PORT" ]; then
+            SSH_PORT=$DEFAULT_SSH_PORT
+            echo -e "${GREEN}使用默认端口：${SSH_PORT}${NC}"
+        else
+            # 检查输入是否为数字
+            if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]]; then
+                echo -e "${RED}错误：端口号必须是数字！${NC}"
+                continue
+            fi
+            
+            # 检查端口范围
+            if [ "$USER_PORT" -lt 1024 ] || [ "$USER_PORT" -gt 65535 ]; then
+                echo -e "${RED}错误：端口号必须在1024-65535之间！${NC}"
+                continue
+            fi
+            
+            SSH_PORT=$USER_PORT
+            echo -e "${GREEN}已选择端口：${SSH_PORT}${NC}"
         fi
         
-        # 检查端口范围
-        if [ "$USER_PORT" -lt 1024 ] || [ "$USER_PORT" -gt 65535 ]; then
-            echo -e "${RED}错误：端口号必须在1024-65535之间！${NC}"
-            select_ssh_port
-            return
+        # 确认端口选择
+        read -p "确认使用端口 ${SSH_PORT} 吗？(y/n)： " CONFIRM
+        if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
+            SSH_PORT=""  # 重置端口，重新开始循环
         fi
-        
-        SSH_PORT=$USER_PORT
-        echo -e "${GREEN}已选择端口：${SSH_PORT}${NC}"
-    fi
-    
-    # 确认端口选择
-    read -p "确认使用端口 ${SSH_PORT} 吗？(y/n)： " CONFIRM
-    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-        select_ssh_port
-    fi
+    done
 }
 
 # 检查是否以root用户运行
